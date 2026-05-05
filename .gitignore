@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# 資料集（太大）
+../data/
+
+# 模型權重（太大）
+../checkpoints/
+
+# Python 環境
+../env/
+
+# 暫存
+*.tmp
+*.log
