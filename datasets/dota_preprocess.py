@@ -46,7 +46,7 @@ CLS2ID  = {c: i for i, c in enumerate(CLASSES)}
 def poly2rbox(poly: np.ndarray) -> Tuple[float, float, float, float, float]:
     """
     四點多邊形 (8 個值) → 旋轉框 (cx, cy, w, h, angle_rad)
-    angle 範圍：[-π/2, 0)，le90 格式
+    angle 範圍：[-π/2, π/2)，le90 格式
     """
     pts = poly.reshape(4, 2)
     # 以最小外接旋轉矩形為基準

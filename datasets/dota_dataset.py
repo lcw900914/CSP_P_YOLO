@@ -70,26 +70,63 @@ class DOTADataset(Dataset):
                torch.zeros((0,),   dtype=torch.long)
 
     def _augment(self, img: Image.Image, boxes: torch.Tensor):
-        """簡單資料增強：隨機水平翻轉、色彩抖動"""
-        # 水平翻轉
+        S = img.width  # 1024, square patch
+        HPI = math.pi / 2
+
+        # LE90 convention: angle ∈ (-π/2, π/2].
+        # Normalise after any angle perturbation using π-periodicity (no w/h swap).
+        def _norm(a):
+            a[a <= -HPI] += math.pi
+            a[a >   HPI] -= math.pi
+            return a
+
+        # 水平翻轉  θ → -θ  (reflect across vertical axis)
         if random.random() > 0.5:
             img = TF.hflip(img)
             if boxes.shape[0] > 0:
-                W = img.width
-                boxes[:, 0] = W - boxes[:, 0]   # cx 翻轉
-                # le90 正確翻轉：-angle 後落在 [0,π/2]，需 swap w,h 並減 π/2
-                new_angle = -boxes[:, 4]
-                mask = new_angle > 0
-                if mask.any():
-                    w_tmp = boxes[mask, 2].clone()
-                    boxes[mask, 2] = boxes[mask, 3]
-                    boxes[mask, 3] = w_tmp
-                    new_angle[mask] -= math.pi / 2
-                boxes[:, 4] = new_angle
-        # 色彩抖動
+                boxes[:, 0] = S - boxes[:, 0]
+                boxes[:, 4] = _norm(-boxes[:, 4])
+
+        # 垂直翻轉  θ → -θ  (reflect across horizontal axis)
         if random.random() > 0.5:
-            img = TF.adjust_brightness(img, random.uniform(0.8, 1.2))
-            img = TF.adjust_contrast(img,   random.uniform(0.8, 1.2))
+            img = TF.vflip(img)
+            if boxes.shape[0] > 0:
+                boxes[:, 1] = S - boxes[:, 1]
+                boxes[:, 4] = _norm(-boxes[:, 4])
+
+        # 隨機 90° / 180° / 270° 旋轉
+        k = random.randint(0, 3)  # 0=no-op, 1=90°CW, 2=180°, 3=270°CW
+        if k > 0:
+            if boxes.shape[0] > 0:
+                cx, cy = boxes[:, 0].clone(), boxes[:, 1].clone()
+                if k == 1:      # 90° CW : (x,y)→(S-y, x) , θ → θ-π/2
+                    boxes[:, 0] = S - cy
+                    boxes[:, 1] = cx
+                    boxes[:, 4] = _norm(boxes[:, 4] - HPI)
+                elif k == 2:    # 180°   : (x,y)→(S-x, S-y), θ unchanged
+                    boxes[:, 0] = S - cx
+                    boxes[:, 1] = S - cy
+                else:           # 270° CW: (x,y)→(y, S-x) , θ → θ+π/2
+                    boxes[:, 0] = cy
+                    boxes[:, 1] = S - cx
+                    boxes[:, 4] = _norm(boxes[:, 4] + HPI)
+            if k == 1:
+                img = img.rotate(-90, expand=False)
+            elif k == 2:
+                img = img.rotate(180, expand=False)
+            else:
+                img = img.rotate(90, expand=False)
+
+        # HSV 色彩抖動（亮度、對比、飽和度、色相）
+        if random.random() > 0.5:
+            img = TF.adjust_brightness(img, random.uniform(0.6, 1.4))
+        if random.random() > 0.5:
+            img = TF.adjust_contrast(img, random.uniform(0.6, 1.4))
+        if random.random() > 0.5:
+            img = TF.adjust_saturation(img, random.uniform(0.6, 1.4))
+        if random.random() > 0.5:
+            img = TF.adjust_hue(img, random.uniform(-0.1, 0.1))
+
         return img, boxes
 
 
