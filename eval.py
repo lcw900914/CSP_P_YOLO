@@ -105,12 +105,13 @@ def nms_rotated(boxes: np.ndarray, scores: np.ndarray,
 # ─────────────────────────────────────────
 
 def compute_ap(recalls: np.ndarray, precisions: np.ndarray) -> float:
-    """Compute AP using 11-point interpolation (PASCAL VOC style)"""
-    ap = 0.0
-    for thr in np.arange(0.0, 1.1, 0.1):
-        p = precisions[recalls >= thr]
-        ap += p.max() if p.size > 0 else 0.0
-    return ap / 11.0
+    """Compute AP using smooth interpolation (PASCAL VOC 2010+, integral under PR curve)"""
+    mrec = np.concatenate(([0.0], recalls, [1.0]))
+    mpre = np.concatenate(([0.0], precisions, [0.0]))
+    for i in range(mpre.size - 1, 0, -1):
+        mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
+    idx = np.where(mrec[1:] != mrec[:-1])[0]
+    return float(np.sum((mrec[idx + 1] - mrec[idx]) * mpre[idx + 1]))
 
 
 def compute_map(all_preds: dict, all_gts: dict,

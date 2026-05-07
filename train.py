@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from models.csp_partial_yolo import CSPPartialYOLO
 from datasets.dota_dataset import build_dataloader
+from eval import evaluate
 
 
 def get_lr(optimizer):
@@ -106,6 +107,10 @@ def main():
     parser.add_argument('--resume',    default='',  help='resume from checkpoint')
     parser.add_argument('--use_ca',    action='store_true', default=True,
                         help='Exp4=True(default), Exp2=False')
+    parser.add_argument('--val_freq',  type=int,   default=10,
+                        help='每幾個 epoch 計算一次 val mAP（0=停用）')
+    parser.add_argument('--score_thr', type=float, default=0.05)
+    parser.add_argument('--nms_thr',   type=float, default=0.1)
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -139,12 +144,18 @@ def main():
         args.train_dir, batch_size=args.batch,
         augment=True,  num_workers=args.workers,
     )
-    # val_loader 在 eval.py 中使用
+    val_loader = None
+    if args.val_freq > 0 and args.val_dir:
+        val_loader = build_dataloader(
+            args.val_dir, batch_size=args.batch,
+            augment=False, num_workers=args.workers,
+        )
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     best_loss  = float('inf')
+    best_mAP   = 0.0
     log_path   = out_dir / 'train_log.txt'
 
     # ── 訓練迴圈 ──────────────────────────────────────────────
@@ -180,7 +191,7 @@ def main():
                 out_dir / f'epoch_{epoch+1:03d}.pt'
             )
 
-        # 存最佳
+        # 存最佳（loss）
         if metrics['loss'] < best_loss:
             best_loss = metrics['loss']
             save_checkpoint(
@@ -188,7 +199,29 @@ def main():
                 out_dir / 'best_model.pt'
             )
 
-    print(f'Training done. Best loss: {best_loss:.4f}')
+        # ── 週期性 val mAP ────────────────────────────────────
+        if val_loader is not None and (epoch + 1) % args.val_freq == 0:
+            print(f'  [Val mAP] Epoch {epoch+1} ...')
+            val_results = evaluate(model, val_loader, device,
+                                   args.score_thr, args.nms_thr)
+            mAP = val_results['mAP']
+            map_line = (f'  [Val mAP] Epoch {epoch+1}: mAP@0.5={mAP*100:.2f}%  '
+                        + '  '.join(f'{n}={v*100:.1f}%'
+                                    for n, v in val_results['AP_per_class'].items()))
+            print(map_line)
+            with open(log_path, 'a') as f:
+                f.write(map_line + '\n')
+
+            if mAP > best_mAP:
+                best_mAP = mAP
+                save_checkpoint(
+                    model, optimizer, epoch, metrics['loss'],
+                    out_dir / 'best_model_map.pt'
+                )
+                print(f'  [Val mAP] New best mAP={best_mAP*100:.2f}%, saved best_model_map.pt')
+            model.train()
+
+    print(f'Training done. Best loss: {best_loss:.4f}  Best mAP: {best_mAP*100:.2f}%')
 
 
 if __name__ == '__main__':
