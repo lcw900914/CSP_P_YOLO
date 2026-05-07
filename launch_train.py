@@ -5,7 +5,7 @@
 import subprocess, sys, os
 from pathlib import Path
 
-LOG_FILE = r"D:\cspyolo\checkpoints_v2\train_log.txt"
+LOG_FILE = r"D:\cspyolo\checkpoints_v3\train_log.txt"
 Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
 
 cmd = [
@@ -13,7 +13,7 @@ cmd = [
     str(Path(__file__).parent / "train.py"),
     "--train_dir", "D:/cspyolo/data/dota/train",
     "--val_dir",   "D:/cspyolo/data/dota/val",
-    "--output",    "D:/cspyolo/checkpoints_v2",
+    "--output",    "D:/cspyolo/checkpoints_v3",
     "--epochs",    "300",
     "--batch",     "6",
     "--lr",        "0.006",
@@ -30,4 +30,4 @@ with open(LOG_FILE, "w", encoding="utf-8") as log:
 print(f"Training started  PID={proc.pid}")
 print(f"Log → {LOG_FILE}")
 print("此視窗可以關閉，訓練在背景繼續執行。")
-print("查看進度：Get-Content D:\\cspyolo\\checkpoints_v2\\train_log.txt -Tail 5")
+print("查看進度：Get-Content D:\\cspyolo\\checkpoints_v3\\train_log.txt -Tail 5")

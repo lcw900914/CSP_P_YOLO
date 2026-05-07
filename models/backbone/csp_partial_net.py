@@ -30,17 +30,13 @@ class StemBlock(nn.Module):
 
 
 class DownSample(nn.Module):
-    """3×3 Conv stride=2 降採樣"""
+    """MaxPool2d 2×2 降採樣（取代 3×3 stride=2 Conv，減少 FLOPs）"""
     def __init__(self, channels: int):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(channels, channels, 3, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(channels),
-            nn.ReLU(inplace=True),
-        )
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.conv(x)
+        return self.pool(x)
 
 
 class CSPPartialNet(nn.Module):

@@ -24,7 +24,7 @@ class PartialConv(nn.Module):
     部分卷積：只對前 Cp 個通道做 HDC，其餘通道直接 Identity 傳遞。
     HDC 三層串聯，空洞率 [1, 2, 5]，層間無 BN/ReLU。
     """
-    def __init__(self, channels: int, cp_ratio: float = 0.5,
+    def __init__(self, channels: int, cp_ratio: float = 0.25,
                  dilation_rates=(1, 2, 5)):
         super().__init__()
         self.cp = max(1, int(channels * cp_ratio))  # 參與卷積的通道數
@@ -59,7 +59,7 @@ class PHDCBlock(nn.Module):
        then follow up with a BatchNorm layer and a ReLU activation function,
        before finally restoring channel dimensionality using pointwise convolution.'
     """
-    def __init__(self, channels: int, cp_ratio: float = 0.5):
+    def __init__(self, channels: int, cp_ratio: float = 0.25):
         super().__init__()
         self.pconv = PartialConv(channels, cp_ratio)
         self.pw1   = nn.Conv2d(channels, channels, 1, bias=False)
