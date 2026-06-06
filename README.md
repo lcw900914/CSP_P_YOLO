@@ -46,27 +46,6 @@
 
 ---
 
-## 完整重現報告
-
-| 欄位 | 內容 |
-|------|------|
-| **論文標題（簡稱）** | CSPPartial-YOLO |
-| **Paper Title** | A Lightweight YOLO-Based Method for Typical Objects Detection in Remote Sensing Images (IEEE JSTARS 2024) |
-| **GitHub 連結** | https://github.com/lcw900914/CSP_P_YOLO |
-| **重現框架** | PyTorch 2.3.1 + mmcv 2.2.0（from scratch，論文無官方程式碼） |
-| **訓練環境** | Ubuntu 24.04 LTS / Python 3.12.3 / PyTorch 2.3.1+cu121 / NVIDIA RTX 4080 16 GB / CUDA 12.1 |
-| **使用資料集** | DOTA v1.0（4 類：plane, large-vehicle, small-vehicle, ship）<br>Train: 15,716 patches / Val: 1,854 patches（512×512 crop, stride 256） |
-| **論文報告指標** | mAP@0.5 = 89.75% / FLOPs = 16.2 G / Latency = 23 ms |
-| **我們重現結果** | mAP@0.5 = **81.48%**（plane 89.79% / large-vehicle 79.24% / small-vehicle 72.18% / ship 84.71%）/ FLOPs = 16.1 G |
-| **差距 Gap** | mAP −8.27%；FLOPs 誤差 < 1% ✓ |
-| **差距原因分析** | ① 論文採完整 TALA 標籤分配，我們因冷啟動不穩定改用 AABB，犧牲旋轉框精準匹配；② 論文 LE90 角度回歸細節未公開；③ 資料前處理細節（overlap/padding）依論文描述推算；④ 300 epochs，論文未明確說明 epoch 數 |
-| **改善方向** | ① 暖啟動 TALA（前 100 epoch AABB，之後切換）；② Mosaic + 旋轉增強；③ 延長訓練至 500 epochs；④ 調整 NMS threshold |
-| **跨資料集測試** | SODA-A 遙感資料集（9,252 train / 5,613 val patches，已混合訓練） |
-| **跨資料集結果** | 待評估（v8 訓練完成後補充） |
-| **README 是否完整** | ✅ 完整 |
-| **備註／心得** | 論文無官方程式碼，架構完全從論文圖表反推（CSPPartialNet、PHDC 模組、SPP 配置）。最大挑戰為 TALA 冷啟動惡性循環，改用 AABB 後穩定收斂。另診斷出 EMA 評估 bug 導致 v6/v7 訓練 log 全程 0% mAP（training model 實為 67–80%）。整體重現達論文 90% 水準，FLOPs 精確匹配。 |
-
----
 
 ## 架構
 
