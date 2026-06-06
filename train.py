@@ -14,12 +14,37 @@ import math
 import torch
 import torch.optim as optim
 from torch.cuda.amp import GradScaler, autocast
+from copy import deepcopy
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from models.csp_partial_yolo import CSPPartialYOLO
 from datasets.dota_dataset import build_dataloader
 from eval import evaluate
+
+
+class ModelEMA:
+    """Exponential Moving Average of model weights (decay=0.9998)."""
+    def __init__(self, model, decay: float = 0.9998):
+        self.ema    = deepcopy(model)
+        self.ema.eval()
+        self.decay  = decay
+        for p in self.ema.parameters():
+            p.requires_grad_(False)
+
+    @torch.no_grad()
+    def update(self, model):
+        d = self.decay
+        for ema_p, m_p in zip(self.ema.parameters(), model.parameters()):
+            ema_p.data.mul_(d).add_(m_p.data, alpha=1.0 - d)
+        for ema_b, m_b in zip(self.ema.buffers(), model.buffers()):
+            ema_b.copy_(m_b)
+
+    def state_dict(self):
+        return self.ema.state_dict()
+
+    def load_state_dict(self, sd):
+        self.ema.load_state_dict(sd)
 
 
 def get_lr(optimizer):
@@ -109,6 +134,8 @@ def main():
                         help='Exp4=True(default), Exp2=False')
     parser.add_argument('--val_freq',  type=int,   default=10,
                         help='每幾個 epoch 計算一次 val mAP（0=停用）')
+    parser.add_argument('--dota_only_val', action='store_true',
+                        help='val 只用 DOTA 原始圖（排除 soda_ 前綴）')
     parser.add_argument('--score_thr', type=float, default=0.05)
     parser.add_argument('--nms_thr',   type=float, default=0.1)
     args = parser.parse_args()
@@ -130,12 +157,15 @@ def main():
         nesterov=True,
     )
     scaler = GradScaler()
+    ema    = ModelEMA(model)
 
     start_epoch = 0
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device)
         model.load_state_dict(ckpt['model'])
         optimizer.load_state_dict(ckpt['optimizer'])
+        if 'ema' in ckpt:
+            ema.load_state_dict(ckpt['ema'])
         start_epoch = ckpt['epoch'] + 1
         print(f'Resumed from epoch {start_epoch}')
 
@@ -149,6 +179,7 @@ def main():
         val_loader = build_dataloader(
             args.val_dir, batch_size=args.batch,
             augment=False, num_workers=args.workers,
+            exclude_prefix='soda_' if args.dota_only_val else '',
         )
 
     out_dir = Path(args.output)
@@ -170,6 +201,7 @@ def main():
             model, train_loader, optimizer, scaler, device, epoch
         )
         elapsed = time.time() - t0
+        ema.update(model)
 
         log_line = (
             f'Epoch [{epoch+1:03d}/{args.epochs}] '
@@ -184,24 +216,27 @@ def main():
         with open(log_path, 'a') as f:
             f.write(log_line + '\n')
 
-        # 每 10 epoch 存一次
+        # 每 10 epoch 存一次（含 EMA）
         if (epoch + 1) % 10 == 0:
-            save_checkpoint(
-                model, optimizer, epoch, metrics['loss'],
-                out_dir / f'epoch_{epoch+1:03d}.pt'
-            )
+            torch.save({
+                'epoch': epoch, 'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'ema': ema.state_dict(), 'loss': metrics['loss'],
+            }, out_dir / f'epoch_{epoch+1:03d}.pt')
 
-        # 存最佳（loss）
+        # 存最佳 loss（EMA 模型）
         if metrics['loss'] < best_loss:
             best_loss = metrics['loss']
-            save_checkpoint(
-                model, optimizer, epoch, metrics['loss'],
-                out_dir / 'best_model.pt'
-            )
+            torch.save({
+                'epoch': epoch, 'model': ema.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'ema': ema.state_dict(), 'loss': metrics['loss'],
+            }, out_dir / 'best_model.pt')
 
-        # ── 週期性 val mAP ────────────────────────────────────
+        # ── 週期性 val mAP（用 training model 評估）──────────────
         if val_loader is not None and (epoch + 1) % args.val_freq == 0:
             print(f'  [Val mAP] Epoch {epoch+1} ...')
+            model.eval()
             val_results = evaluate(model, val_loader, device,
                                    args.score_thr, args.nms_thr)
             mAP = val_results['mAP']
@@ -214,10 +249,11 @@ def main():
 
             if mAP > best_mAP:
                 best_mAP = mAP
-                save_checkpoint(
-                    model, optimizer, epoch, metrics['loss'],
-                    out_dir / 'best_model_map.pt'
-                )
+                torch.save({
+                    'epoch': epoch, 'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'loss': metrics['loss'],
+                }, out_dir / 'best_model_map.pt')
                 print(f'  [Val mAP] New best mAP={best_mAP*100:.2f}%, saved best_model_map.pt')
             model.train()
 

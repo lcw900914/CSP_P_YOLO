@@ -10,6 +10,8 @@ PP-YOLOE-R Rotation Detection Head
 每個尺度的 stem：2 × (DWConv 3×3 + BN + SiLU)
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -176,9 +178,11 @@ class PPYOLOERHead(nn.Module):
         feat_shapes: List[Tuple],
     ) -> dict:
         """
-        簡化版 Task-Aligned Label Assignment + Loss 計算。
-        正樣本條件：anchor point 在 GT 框內 (點在旋轉矩形內的近似：AABB)
+        簡化版 Task-Aligned Label Assignment (AABB) + Loss 計算。
+        正樣本條件：anchor point 在 GT 框的 AABB 內。
         """
+        from ..utils.rotated_box import xywha_to_gaussian, bhattacharyya_distance
+
         device = cls_list[0].device
         B      = cls_list[0].shape[0]
 
@@ -219,10 +223,8 @@ class PPYOLOERHead(nn.Module):
                 ) * self.loss_cls_w
                 continue
 
-            # ── 簡化版 label assignment ─────────────────────────────
+            # ── AABB label assignment ──────────────────────────────────
             # 計算每個 anchor 到每個 GT 的 AABB overlap（近似旋轉框）
-            # anchor_pts: (N, 2) → (N, 1, 2)
-            # gt_box: (M, 5) cx,cy,w,h,angle → AABB: ±(w/2, h/2)
             ap = anchor_pts.unsqueeze(1)                       # N,1,2
             gc = gt_box[:, :2].unsqueeze(0)                    # 1,M,2
             gw = gt_box[:, 2].unsqueeze(0)                     # 1,M
@@ -246,17 +248,13 @@ class PPYOLOERHead(nn.Module):
             num_pos_total += num_pos
 
             # ── 解碼正樣本的預測框 ─────────────────────────────────
-            pos_reg  = reg_pred[b][pos_mask]                   # Np, 4*(r+1)
-            pos_ang  = ang_pred[b][pos_mask]                   # Np, 1
-            pos_anch = anchor_pts[pos_mask]                    # Np, 2
+            pos_reg    = reg_pred[b][pos_mask]                 # Np, 4*(r+1)
+            pos_ang    = ang_pred[b][pos_mask]                 # Np, 1
+            pos_anch   = anchor_pts[pos_mask]                  # Np, 2
             pos_stride = stride_tensor[pos_mask]               # Np, 1
 
             pred_boxes = dist2rbox(
-                pos_reg,
-                pos_ang,
-                pos_anch,
-                self.reg_max,
-                pos_stride,
+                pos_reg, pos_ang, pos_anch, self.reg_max, pos_stride,
             )                                                  # Np, 5
 
             # 對應的 GT
@@ -264,12 +262,10 @@ class PPYOLOERHead(nn.Module):
             tgt_boxes  = gt_box[pos_gt_idx]                   # Np, 5
             tgt_labels = gt_lbl[pos_gt_idx]                   # Np,
 
-            # IoU score 作為分類軟標籤
-            from ..utils.rotated_box import (xywha_to_gaussian,
-                                              bhattacharyya_distance)
+            # IoU score 作為分類軟標籤（Bhattacharyya-based ProbIoU）
             mu1, s1 = xywha_to_gaussian(pred_boxes.detach())
             mu2, s2 = xywha_to_gaussian(tgt_boxes)
-            bd      = bhattacharyya_distance(mu1, s1, mu2, s2)
+            bd        = bhattacharyya_distance(mu1, s1, mu2, s2)
             iou_score = torch.exp(-bd).clamp(0, 1)            # Np,
 
             # 分類目標（one-hot × IoU score）

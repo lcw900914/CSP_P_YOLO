@@ -218,6 +218,8 @@ def main():
     parser.add_argument('--nms_thr',     type=float, default=0.1)
     parser.add_argument('--gt_dedup_thr',type=float, default=0.5,
                         help='GT 去重 IoU 閾值（0=不去重）')
+    parser.add_argument('--dota_only_val', action='store_true',
+                        help='只評估 DOTA 原始圖（排除 soda_ 前綴）')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -230,6 +232,7 @@ def main():
     val_loader = build_dataloader(
         args.val_dir, batch_size=args.batch,
         augment=False, num_workers=args.workers,
+        exclude_prefix='soda_' if args.dota_only_val else '',
     )
 
     # ── mAP（DOTA-style）─────────────────────────────────────

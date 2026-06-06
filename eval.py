@@ -215,14 +215,9 @@ def evaluate(model, loader, device,
         print(f'  [NMS] mmcv 不可用，使用 Shapely fallback: {e}')
 
     total_batches = len(loader)
-    print(f'  [DBG] 開始迭代 DataLoader ...', flush=True)
     for batch_idx, (imgs, gt_bboxes, gt_labels, stems) in enumerate(loader):
-        print(f'  [DBG] batch {batch_idx} 已取得, imgs={imgs.shape}', flush=True)
         imgs = imgs.to(device)
-
-        print(f'  [DBG] batch {batch_idx} 開始推論 ...', flush=True)
         boxes_b, scores_b, _ = model(imgs)
-        print(f'  [DBG] batch {batch_idx} 推論完成, boxes={boxes_b.shape}', flush=True)
 
         for b in range(len(stems)):
             img_id  = stems[b]
@@ -298,6 +293,8 @@ def main():
     parser.add_argument('--workers',  type=int, default=4)
     parser.add_argument('--score_thr',type=float, default=0.05)
     parser.add_argument('--nms_thr',  type=float, default=0.1)
+    parser.add_argument('--dota_only_val', action='store_true',
+                        help='排除 soda_ 前綴圖片，只用 DOTA 原始圖')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -310,6 +307,7 @@ def main():
     val_loader = build_dataloader(
         args.val_dir, batch_size=args.batch,
         augment=False, num_workers=args.workers,
+        exclude_prefix='soda_' if args.dota_only_val else '',
     )
 
     # ── mAP ──────────────────────────────────────────────────

@@ -13,11 +13,11 @@ from pathlib import Path
 from PIL import Image
 
 # ── 路徑設定 ────────────────────────────────────────────────────────
-SODA_ROOT  = Path('D:/cspyolo/data/soda_a')
-DOTA_TRAIN = Path('D:/cspyolo/data/dota/train')
+SODA_ROOT  = Path('/home/lcw/CSPPartialYOLO/datasets/soda_a/soda_a')
+DOTA_TRAIN = Path('/home/lcw/CSPPartialYOLO/datasets/dota/dota/train')
+DOTA_VAL   = Path('/home/lcw/CSPPartialYOLO/datasets/dota/dota/val')
 PATCH_SIZE = 1024
 STRIDE     = 824   # overlap = 200px
-SPLIT      = 'train'   # 只合併 train split
 
 # ── 類別對照 ────────────────────────────────────────────────────────
 # SODA category_id → 我們的 class_id
@@ -71,92 +71,82 @@ def crop_boxes(boxes, x0, y0, patch_size):
 
 
 # ── 主程式 ─────────────────────────────────────────────────────────
-ann_dir = SODA_ROOT / 'Annotations' / SPLIT
 img_dir = SODA_ROOT / 'Images'
 
-out_img = DOTA_TRAIN / 'images'
-out_lbl = DOTA_TRAIN / 'labels'
-out_img.mkdir(parents=True, exist_ok=True)
-out_lbl.mkdir(parents=True, exist_ok=True)
+for SPLIT, DOTA_OUT in [('train', DOTA_TRAIN), ('val', DOTA_VAL)]:
+    ann_dir = SODA_ROOT / 'Annotations' / SPLIT
+    out_img = DOTA_OUT / 'images'
+    out_lbl = DOTA_OUT / 'labels'
+    out_img.mkdir(parents=True, exist_ok=True)
+    out_lbl.mkdir(parents=True, exist_ok=True)
 
-json_files = sorted(ann_dir.glob('*.json'))
-print(f'處理 {len(json_files)} 張 SODA-A {SPLIT} 影像 ...')
+    json_files = sorted(ann_dir.glob('*.json'))
+    print(f'\n處理 {len(json_files)} 張 SODA-A {SPLIT} 影像 ...')
 
-total_patches = 0
-total_boxes   = 0
-skipped_imgs  = 0
+    total_patches = 0
+    total_boxes   = 0
+    skipped_imgs  = 0
 
-for jf in json_files:
-    d    = json.load(open(jf))
-    meta = d['images']  # dict
-    img_file = img_dir / meta['file_name']
+    for i, jf in enumerate(json_files):
+        d    = json.load(open(jf))
+        meta = d['images']
+        img_file = img_dir / meta['file_name']
 
-    if not img_file.exists():
-        print(f'  [WARN] 找不到 {img_file}，跳過')
-        skipped_imgs += 1
-        continue
-
-    W, H = meta['width'], meta['height']
-
-    # 解析 annotations：只取 4 個目標類別
-    boxes_full = []
-    for ann in d['annotations']:
-        cid = ann['category_id']
-        if cid not in CLASS_MAP:
+        if not img_file.exists():
+            print(f'  [WARN] 找不到 {img_file}，跳過')
+            skipped_imgs += 1
             continue
-        poly = ann['poly']
-        try:
-            cx, cy, w, h, angle = poly_to_obb_le90(poly)
-        except Exception as e:
+
+        W, H = meta['width'], meta['height']
+
+        boxes_full = []
+        for ann in d['annotations']:
+            cid = ann['category_id']
+            if cid not in CLASS_MAP:
+                continue
+            poly = ann['poly']
+            try:
+                cx, cy, w, h, angle = poly_to_obb_le90(poly)
+            except Exception:
+                continue
+            if w < 2 or h < 2:
+                continue
+            boxes_full.append((cx, cy, w, h, angle, CLASS_MAP[cid]))
+
+        if not boxes_full:
             continue
-        if w < 2 or h < 2:
-            continue
-        boxes_full.append((cx, cy, w, h, angle, CLASS_MAP[cid]))
 
-    if not boxes_full:
-        continue  # 此圖無目標類別，跳過
+        img = Image.open(img_file).convert('RGB')
+        img_np = np.array(img)
 
-    # 讀取圖片（用 PIL，避免大圖 OOM）
-    img = Image.open(img_file).convert('RGB')
-    img_np = np.array(img)
+        stem = jf.stem
+        xs = sorted(set(list(range(0, W - PATCH_SIZE, STRIDE)) + [max(0, W - PATCH_SIZE)]))
+        ys = sorted(set(list(range(0, H - PATCH_SIZE, STRIDE)) + [max(0, H - PATCH_SIZE)]))
 
-    # 切 patch
-    stem = jf.stem   # e.g. "00001"
-    xs = list(range(0, W - PATCH_SIZE, STRIDE)) + [max(0, W - PATCH_SIZE)]
-    ys = list(range(0, H - PATCH_SIZE, STRIDE)) + [max(0, H - PATCH_SIZE)]
-    xs = sorted(set(xs))
-    ys = sorted(set(ys))
+        for y0 in ys:
+            for x0 in xs:
+                patch_boxes = crop_boxes(boxes_full, x0, y0, PATCH_SIZE)
+                if not patch_boxes:
+                    continue
 
-    for y0 in ys:
-        for x0 in xs:
-            patch_boxes = crop_boxes(boxes_full, x0, y0, PATCH_SIZE)
-            if not patch_boxes:
-                continue   # 無目標的 patch 不儲存（節省儲存空間）
+                patch = img_np[y0:y0+PATCH_SIZE, x0:x0+PATCH_SIZE]
+                if patch.shape[0] != PATCH_SIZE or patch.shape[1] != PATCH_SIZE:
+                    p = np.zeros((PATCH_SIZE, PATCH_SIZE, 3), dtype=np.uint8)
+                    p[:patch.shape[0], :patch.shape[1]] = patch
+                    patch = p
 
-            # 裁切影像
-            patch = img_np[y0:y0+PATCH_SIZE, x0:x0+PATCH_SIZE]
-            if patch.shape[0] != PATCH_SIZE or patch.shape[1] != PATCH_SIZE:
-                # 邊緣補黑
-                p = np.zeros((PATCH_SIZE, PATCH_SIZE, 3), dtype=np.uint8)
-                p[:patch.shape[0], :patch.shape[1]] = patch
-                patch = p
+                patch_name = f'soda_{stem}_{x0}_{y0}'
+                Image.fromarray(patch).save(out_img / f'{patch_name}.jpg', quality=95)
 
-            patch_name = f'soda_{stem}_{x0}_{y0}'
-            Image.fromarray(patch).save(out_img / f'{patch_name}.jpg', quality=95)
+                with open(out_lbl / f'{patch_name}.txt', 'w') as fw:
+                    for cx, cy, w, h, angle, cls_id in patch_boxes:
+                        fw.write(f'{cx:.4f} {cy:.4f} {w:.4f} {h:.4f} {angle:.6f} {cls_id}\n')
 
-            # 寫標註
-            with open(out_lbl / f'{patch_name}.txt', 'w') as fw:
-                for cx, cy, w, h, angle, cls_id in patch_boxes:
-                    fw.write(f'{cx:.4f} {cy:.4f} {w:.4f} {h:.4f} {angle:.6f} {cls_id}\n')
+                total_patches += 1
+                total_boxes   += len(patch_boxes)
 
-            total_patches += 1
-            total_boxes   += len(patch_boxes)
+        if (i + 1) % 100 == 0:
+            print(f'  [{i+1}/{len(json_files)}] patches={total_patches} boxes={total_boxes}')
 
-    if (json_files.index(jf) + 1) % 100 == 0:
-        print(f'  [{json_files.index(jf)+1}/{len(json_files)}] patches={total_patches} boxes={total_boxes}')
-
-print(f'\n完成！')
-print(f'  Patches 生成：{total_patches}')
-print(f'  Boxes 總計：{total_boxes}')
-print(f'  跳過影像：{skipped_imgs}')
-print(f'  輸出目錄：{DOTA_TRAIN}')
+    print(f'完成 {SPLIT}：patches={total_patches}, boxes={total_boxes}, 跳過={skipped_imgs}')
+    print(f'  輸出：{DOTA_OUT}')

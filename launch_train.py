@@ -5,21 +5,21 @@
 import subprocess, sys, os
 from pathlib import Path
 
-LOG_FILE = r"D:\cspyolo\checkpoints_v4\train_log.txt"
+LOG_FILE = "/home/lcw/CSPPartialYOLO/checkpoints/train_log.txt"
 Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
 
 cmd = [
-    r"D:\cspyolo\env\Scripts\python.exe", "-u",
+    sys.executable, "-u",
     str(Path(__file__).parent / "train.py"),
-    "--train_dir", "D:/cspyolo/data/dota/train",
-    "--val_dir",   "D:/cspyolo/data/dota/val",
-    "--output",    "D:/cspyolo/checkpoints_v4",
+    "--train_dir", str(Path(__file__).parent / "datasets/dota/dota/train"),
+    "--val_dir",   str(Path(__file__).parent / "datasets/dota/dota/val"),
+    "--output",    str(Path(__file__).parent / "checkpoints"),
     "--epochs",    "300",
-    "--batch",     "6",
-    "--lr",        "0.006",
+    "--batch",     "28",
+    "--lr",        "0.010",
     "--warmup",    "10",
     "--workers",   "4",
-    "--resume",    "D:/cspyolo/checkpoints_v4/epoch_080.pt",
+    "--dota_only_val",
 ]
 
 env = os.environ.copy()
@@ -31,4 +31,4 @@ with open(LOG_FILE, "a", encoding="utf-8") as log:
 print(f"Training started  PID={proc.pid}")
 print(f"Log → {LOG_FILE}")
 print("此視窗可以關閉，訓練在背景繼續執行。")
-print("查看進度：Get-Content D:\\cspyolo\\checkpoints_v4\\train_log.txt -Tail 5")
+print("查看進度：tail -f", LOG_FILE)
