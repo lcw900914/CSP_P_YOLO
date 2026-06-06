@@ -50,10 +50,9 @@
 
 | 欄位 | 內容 |
 |------|------|
-| **編號 #** | 1 |
 | **論文標題（簡稱）** | CSPPartial-YOLO |
 | **Paper Title** | A Lightweight YOLO-Based Method for Typical Objects Detection in Remote Sensing Images (IEEE JSTARS 2024) |
-| **GitHub 連結** | https://github.com/lcw900914/CSPPartialYOLO |
+| **GitHub 連結** | https://github.com/lcw900914/CSP_P_YOLO |
 | **重現框架** | PyTorch 2.3.1 + mmcv 2.2.0（from scratch，論文無官方程式碼） |
 | **訓練環境** | Ubuntu 24.04 LTS / Python 3.12.3 / PyTorch 2.3.1+cu121 / NVIDIA RTX 4080 16 GB / CUDA 12.1 |
 | **使用資料集** | DOTA v1.0（4 類：plane, large-vehicle, small-vehicle, ship）<br>Train: 15,716 patches / Val: 1,854 patches（512×512 crop, stride 256） |
