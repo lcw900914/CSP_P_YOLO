@@ -1,110 +1,83 @@
-# CSPPartial-YOLO：遙感影像目標偵測重現
+# CSPPartial-YOLO 重現
 
-> **Paper:** *A Lightweight YOLO-Based Method for Typical Objects Detection in Remote Sensing Images*  
-> **Journal:** IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing (JSTARS), 2024  
-> **Reproduction:** PyTorch from scratch — no official code released
+用 PyTorch 從頭重現這篇論文：
 
----
+> *A Lightweight YOLO-Based Method for Typical Objects Detection in Remote Sensing Images*
+> IEEE JSTARS, 2024
 
-## 偵測效果 Demo
+論文沒有放出官方程式碼（原作是 PaddlePaddle），所以這份實作是照論文的圖表跟公式自己刻出來的。任務是 DOTA 遙感影像的旋轉框偵測，做了 plane、large-vehicle、small-vehicle、ship 四類。
 
-| 機場 — Plane | 停機坪 — Plane（多角度） |
+## 偵測效果
+
+| 機場 | 停機坪（多角度） |
 |:---:|:---:|
 | ![demo1](demo/01_P1854_0_0.jpg) | ![demo2](demo/05_P1088_0_824.jpg) |
 
-| 港灣 — Ship & Small-Vehicle | 停車場 — Small-Vehicle & Large-Vehicle |
+| 港灣 | 停車場 |
 |:---:|:---:|
 | ![demo3](demo/04_P0761_594_0.jpg) | ![demo4](demo/02_soda_00685_3731_824.jpg) |
 
-> 彩色旋轉框說明：🔵 **Plane**　🟢 **Large-Vehicle**　🟠 **Small-Vehicle**　🟡 **Ship**  
-> 灰色細框為 Ground Truth（僅供參考）
+旋轉框顏色：🔵 plane　🟢 large-vehicle　🟠 small-vehicle　🟡 ship。灰色細框是 ground truth。
 
----
+## 結果
 
-## 重現結果
+在 DOTA val（1854 張）上跑出來的數字，跟論文對一下：
 
-### 主要指標對比
+| | 論文 | 這份 |
+|------|:-------:|:-------:|
+| mAP@0.5 | 89.75% | 81.48% |
+| FLOPs | 16.2 G | 16.1 G |
+| Params | ~6.5 M | 6.52 M |
 
-| 指標 | 論文報告 | 本次重現 | 差距 |
-|------|:-------:|:-------:|:----:|
-| **mAP@0.5** | **89.75%** | **81.48%** | −8.27% |
-| FLOPs | 16.2 G | 16.1 G | −0.1 G ✓ |
-| Latency | 23 ms | 3.5 ms† | — |
-| Params | ~6.5 M | 6.52 M | ✓ |
+mAP 還差論文 8 個百分點左右，但 FLOPs 跟參數量基本上對上了。各類別分開看：
 
-† Latency 以 RTX 4080 量測，論文為嵌入式設備，不具可比性。
-
-### 各類別 AP（DOTA val, 1854 張，IoU@0.5）
-
-| Class | AP |
+| 類別 | AP |
 |-------|---:|
-| Plane | **89.79%** |
-| Large-Vehicle | **79.24%** |
-| Small-Vehicle | **72.18%** |
-| Ship | **84.71%** |
-| **mAP@0.5** | **81.48%** |
+| plane | 89.79% |
+| ship | 84.71% |
+| large-vehicle | 79.24% |
+| small-vehicle | 72.18% |
 
----
+plane 最好，small-vehicle 最差——小物體本來就比較難，旋轉框又對角度精度更敏感。
 
+差距主要來自 label assignment：論文用的是 TALA，我試過但冷啟動會卡死（初期角度亂跳，IoU 全是 0，模型直接學會什麼都不輸出），最後退回用 AABB 選正樣本才穩定收斂。其他像角度回歸、切圖 overlap 這些細節論文沒寫清楚，也只能照描述推。
 
 ## 架構
 
 ```
 Input (3×1024×1024)
-    │
-    ▼
-CSPPartialNet (Backbone)          ← cp_ratio=0.25, MaxPool Downsample
-    │  p3 (128ch, /8)
-    │  p4 (256ch, /16)
-    │  p5 (512ch, /32)
-    ▼
-CSPPartialFPN (Neck)              ← Top-down + Bottom-up, PHDC module
-    │  p3' / p4' / p5'
-    ▼
-PPYOLOERHead (Head)               ← DFL reg + 1-dim angle + VFL cls
-    │
-    ▼
-旋轉框輸出 (cx, cy, w, h, θ) × 4 classes
+  → CSPPartialNet (Backbone)   cp_ratio=0.25, MaxPool 降採樣
+      p3 / p4 / p5
+  → CSPPartialFPN (Neck)       top-down + bottom-up, PHDC block
+  → PPYOLOERHead (Head)        DFL 回歸 + 1 維角度 + VFL 分類
+  → 旋轉框 (cx, cy, w, h, θ) × 4 類
 ```
 
-- **Params:** 6.52 M　**FLOPs:** 16.1 G
+6.52M 參數，16.1G FLOPs。Backbone 每個 stage 都有 Coordinate Attention。
 
----
-
-## 環境安裝
+## 環境
 
 ```bash
-# 建立虛擬環境
 python -m venv venv && source venv/bin/activate
-
-# 安裝依賴
 pip install -r requirements.txt
-
-# 安裝 mmcv（需對應 CUDA 版本）
-pip install mmcv==2.2.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.3/index.html
+pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html
 ```
 
----
+主要依賴是 torch 2.1.2 + cu121，mmcv 2.1.0 用來算旋轉框 IoU 跟 NMS。
 
-## 資料前處理
+## 資料準備
+
+DOTA v1.0 下載後切圖（大圖太大塞不進顯卡，切成 512 的 patch，stride 256 讓相鄰塊重疊一半）：
 
 ```bash
-# DOTA v1.0：下載後執行切圖
 python make_odp.py \
   --src_img /path/to/DOTA/train/images \
   --src_lbl /path/to/DOTA/train/labelTxt \
   --out     datasets/dota/dota/train \
   --size 512 --stride 256
-
-# 同理處理 val
-python make_odp.py \
-  --src_img /path/to/DOTA/val/images \
-  --src_lbl /path/to/DOTA/val/labelTxt \
-  --out     datasets/dota/dota/val \
-  --size 512 --stride 256
 ```
 
----
+val 同樣處理，路徑換成 val 就好。
 
 ## 訓練
 
@@ -113,54 +86,31 @@ python train.py \
   --train_dir datasets/dota/dota/train \
   --val_dir   datasets/dota/dota/val \
   --output    checkpoints \
-  --epochs    300 \
-  --batch     28 \
-  --lr        0.010 \
-  --warmup    10 \
-  --workers   4 \
+  --epochs 300 --batch 28 --lr 0.010 --warmup 10 --workers 4 \
   --dota_only_val
 ```
 
----
+RTX 4080 上一個 epoch 大概 3 分鐘，跑完 300 epoch 約十幾個小時。
 
 ## 評估
 
 ```bash
 python eval.py \
-  --val_dir    datasets/dota/dota/val \
-  --weights    checkpoints/best_model_map.pt \
-  --batch      8 \
-  --score_thr  0.05 \
-  --nms_thr    0.1 \
+  --val_dir datasets/dota/dota/val \
+  --weights checkpoints/best_model_map.pt \
+  --batch 8 --score_thr 0.05 --nms_thr 0.1 \
   --dota_only_val
 ```
-
----
 
 ## 視覺化
 
 ```bash
 python visualize.py \
-  --weights   checkpoints/best_model_map.pt \
-  --val_dir   datasets/dota/dota/val \
-  --out       demo \
-  --n         8 \
-  --score_thr 0.25
+  --weights checkpoints/best_model_map.pt \
+  --val_dir datasets/dota/dota/val \
+  --out demo --n 8 --score_thr 0.25
 ```
 
----
+## 權重
 
-## 最佳權重
-
-`checkpoints/best_model_map.pt`（51 MB）— epoch 210，mAP@0.5 = **81.48%**
-
----
-
-## 類別說明
-
-| 顏色 | 類別 | AP |
-|------|------|----|
-| 🔵 藍 | plane | 89.79% |
-| 🟢 綠 | large-vehicle | 79.24% |
-| 🟠 橙 | small-vehicle | 72.18% |
-| 🟡 黃 | ship | 84.71% |
+`checkpoints/best_model_map.pt`，epoch 210 的存檔，mAP@0.5 = 81.48%。
