@@ -17,3 +17,28 @@ __pycache__/
 # 暫存
 *.tmp
 *.log
+
+# 開發筆記與簡報相關（不納入精簡 repo）
+PROGRESS.md
+RESULTS_v*.md
+update_report.md
+報告講稿.md
+CA_heatmap_explanation.md
+make_odp.py
+make_ppt.py
+pptx_to_odp.py
+plot_loss.py
+plot_results.py
+preprocess_soda.py
+visualize_ca.py
+*.pptx
+*.pdf
+
+# 額外權重與資料
+checkpoints/best_model.pt
+checkpoints/train_log.txt
+checkpoints/epoch_*.pt
+checkpoints_v*/
+datasets/dota/
+datasets/soda_a/
+demo_ca/

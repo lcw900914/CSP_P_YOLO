@@ -67,17 +67,17 @@ pip install mmcv==2.1.0 -f https://download.openmmlab.com/mmcv/dist/cu121/torch2
 
 ## 資料準備
 
-DOTA v1.0 下載後切圖（大圖太大塞不進顯卡，切成 512 的 patch，stride 256 讓相鄰塊重疊一半）：
+DOTA v1.0 下載後切圖（大圖太大塞不進顯卡，切成 1024×1024 的 patch，重疊 200px）：
 
 ```bash
-python make_odp.py \
+python datasets/dota_preprocess.py \
   --src_img /path/to/DOTA/train/images \
-  --src_lbl /path/to/DOTA/train/labelTxt \
-  --out     datasets/dota/dota/train \
-  --size 512 --stride 256
+  --src_ann /path/to/DOTA/train/labelTxt \
+  --dst     datasets/dota/dota/train \
+  --size 1024 --overlap 200
 ```
 
-val 同樣處理，路徑換成 val 就好。
+val 同樣處理，路徑換成 val 就好。實際參數請以 `datasets/dota_preprocess.py` 的 argparse 為準。
 
 ## 訓練
 
