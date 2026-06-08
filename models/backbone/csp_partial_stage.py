@@ -1,15 +1,12 @@
 """
-CSPPartialStage
-論文：CSPPartial-YOLO (IEEE JSTARS 2024), Section III-B-1, Fig.3
+CSPPartialStage — backbone 裡的一個 stage。
 
-結構（依論文原文）：
-  Input
-    └─ CBN (1×1, 通道減半)
-    ├─ Branch1: CBN (1×1)
-    └─ Branch2: CBN (1×1) → PHDC Block × N
-  Concat → CA Module → CBN (1×1, 通道匹配)
+走 CSP 那一套：進來先把通道砍一半，然後分兩條路——
+一條(branch1)幾乎原樣放著，另一條(branch2)丟進 PHDC 堆疊去抽特徵，
+最後兩條接起來、過一下 CA，再調回需要的通道數輸出。
+這種「一半留、一半算」的做法可以省掉不少計算。
 
-注意：論文明確指出「all CBNs use 1×1 convolution」
+小提醒：這裡所有的 CBN 都是 1×1 卷積。
 """
 
 import torch
@@ -38,23 +35,23 @@ class CSPPartialStage(nn.Module):
         super().__init__()
         mid_ch = in_ch // 2
 
-        # 入口 CBN：通道減半
+        # 一進來先把通道砍一半
         self.conv_in  = CBN(in_ch, mid_ch)
 
-        # 兩條分支（輸入相同，均為 mid_ch）
-        self.branch1  = CBN(mid_ch, mid_ch)
+        # 分兩條路，兩條的輸入都是 mid_ch
+        self.branch1  = CBN(mid_ch, mid_ch)              # 這條基本上原樣放著
 
-        self.branch2  = nn.Sequential(
+        self.branch2  = nn.Sequential(                   # 這條才是真的在抽特徵
             CBN(mid_ch, mid_ch),
             *[PHDCBlock(mid_ch) for _ in range(n_blocks)],
         )
 
-        # CA（可選）
+        # CA 看要不要開
         self.use_ca   = use_ca
         if use_ca:
             self.ca   = CoordAttention(mid_ch * 2)
 
-        # 出口 CBN：通道匹配
+        # 出口再把通道調回外面要的數量
         self.conv_out = CBN(mid_ch * 2, out_ch)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

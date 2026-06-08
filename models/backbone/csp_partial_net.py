@@ -1,12 +1,10 @@
 """
-CSPPartialNet：骨幹網路
-論文：CSPPartial-YOLO (IEEE JSTARS 2024), Section III-C
+CSPPartialNet — 骨幹，負責從圖片抽特徵。
 
-架構：
-  Stem → Stage0 → Down → Stage1 → Down → Stage2 → Down → Stage3
-  輸出最後三個 Stage 的特徵圖：P3(128×128), P4(64×64), P5(32×32)
-  PHDC Block 數量比 [1,1,3,1]（論文明確引用 ConvNeXt）
-  通道配置參考 PP-YOLOE-R-S：[32, 64, 128, 256, 512]
+流程就是一路往下抽：
+  Stem → Stage0 → 降採樣 → Stage1 → 降採樣 → Stage2 → 降採樣 → Stage3
+最後把後三個 stage 的特徵 P3/P4/P5 丟出去給 neck（分別是 /8、/16、/32 解析度）。
+每個 stage 裡 PHDC block 的數量是 [1,1,3,1]，通道數沿用 PP-YOLOE-R-S 的配置。
 """
 
 import torch
@@ -16,7 +14,7 @@ from typing import Tuple
 
 
 class StemBlock(nn.Module):
-    """初步降採樣：3×3 Conv stride=2，1024 → 512"""
+    """開頭第一刀降採樣：3×3 stride=2 卷積，把圖縮一半"""
     def __init__(self, in_ch: int = 3, out_ch: int = 32):
         super().__init__()
         self.conv = nn.Sequential(
@@ -30,7 +28,7 @@ class StemBlock(nn.Module):
 
 
 class DownSample(nn.Module):
-    """MaxPool2d 2×2 降採樣（取代 3×3 stride=2 Conv，減少 FLOPs）"""
+    """用 MaxPool 來縮小尺寸。改用 pool 而不是 stride 卷積，就是為了省 FLOPs"""
     def __init__(self, channels: int):
         super().__init__()
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -52,9 +50,9 @@ class CSPPartialNet(nn.Module):
 
         # Stem：1024 → 512, ch: 3→32
         self.stem   = StemBlock(3, 32)
-        self.down_stem = DownSample(32) # 512 → 256（讓後續 Stage 輸出對齊論文）
+        self.down_stem = DownSample(32) # 再縮一次到 256，這樣後面尺寸才對得上論文
 
-        # Stage0：256→256, ch: 32→64, n_blocks=1（此層輸出不送入 FPN）
+        # Stage0：這層的輸出不會送給 FPN，純粹墊一層
         self.stage0 = CSPPartialStage(32,  64,  n_blocks=1, use_ca=True)
         self.down0  = DownSample(64)    # 256 → 128
 

@@ -1,8 +1,9 @@
 """
-CSPPartial-YOLO：完整模型
-Backbone: CSPPartialNet
-Neck:     CSPPartialFPN
-Head:     PPYOLOERHead
+整個模型組裝在一起的地方。
+
+三大塊串起來：
+  backbone(CSPPartialNet) 抽特徵 → neck(CSPPartialFPN) 多尺度融合 → head(PPYOLOERHead) 出框
+訓練時 forward 直接回傳 loss，推論時回傳解碼好的旋轉框。
 """
 
 import torch
@@ -34,13 +35,13 @@ class CSPPartialYOLO(nn.Module):
     def forward(self, x: torch.Tensor,
                 gt_bboxes: Optional[List[torch.Tensor]] = None,
                 gt_labels: Optional[List[torch.Tensor]] = None):
-        # Backbone + Neck
+        # 先過 backbone 抽三層特徵，再丟進 neck 融合
         p3, p4, p5      = self.backbone(x)
         p3, p4, p5      = self.neck(p3, p4, p5)
         feats           = (p3, p4, p5)
         feat_shapes     = [(p.shape[2], p.shape[3]) for p in feats]
 
-        # Head forward
+        # head 吐出三個分支的原始輸出
         cls_list, reg_list, ang_list = self.head(feats)
 
         if self.training and gt_bboxes is not None:

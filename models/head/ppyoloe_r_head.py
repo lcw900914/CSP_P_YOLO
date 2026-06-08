@@ -1,13 +1,12 @@
 """
-PP-YOLOE-R Rotation Detection Head
-論文：CSPPartial-YOLO (IEEE JSTARS 2024) - 直接沿用 PP-YOLOE-R 的旋轉頭
+旋轉框偵測頭，直接沿用 PP-YOLOE-R 的設計。
 
-三個獨立分支（論文 Fig.5）：
-  - cls_branch: 分類預測（num_classes）
-  - reg_branch: 框回歸預測（4 × (reg_max+1) DFL 分佈）
-  - angle_branch: 角度預測（1 個回歸值，弧度）
+每個 FPN 層級各有三個分支，分頭做三件事：
+  - 分類：每個位置是哪一類
+  - 框回歸：用 DFL 預測框四個邊到中心的距離（每邊一個 reg_max+1 的分布）
+  - 角度：直接回歸一個弧度值
 
-每個尺度的 stem：2 × (DWConv 3×3 + BN + SiLU)
+每個層級前面都先過一個 stem（兩層 DWConv + BN + SiLU）整理一下特徵。
 """
 
 import math

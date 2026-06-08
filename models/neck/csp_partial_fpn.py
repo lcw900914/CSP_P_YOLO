@@ -1,14 +1,12 @@
 """
-CSPPartialFPN：頸部網路
-論文：CSPPartial-YOLO (IEEE JSTARS 2024), Section III-C, Fig.4
+CSPPartialFPN — 頸部，把 backbone 出來的三層特徵互相融合。
 
-結構：
-  - FPNStage 與 CSPPartialStage 相似，但不含 CA
-  - 最高層 (P5) 在 branch2 通過 SPP
-  - 雙向 FPN：Top-down pass → Bottom-up pass
+重點：
+  - 裡面的 FPNStage 長得跟 backbone 的 stage 很像，但沒有 CA
+  - 最高層 P5 那條會多過一個 SPP
+  - 走雙向：先由上往下傳一遍，再由下往上傳一遍，讓大小物體的資訊互通
 
-輸入：(P3, P4, P5) from CSPPartialNet
-輸出：(P3', P4', P5') 同 channel，供 detection head 使用
+吃進 backbone 的 (P3, P4, P5)，吐出同樣三層、通道數不變，交給偵測頭。
 """
 
 import torch
@@ -22,15 +20,15 @@ from typing import Tuple
 
 class FPNStage(nn.Module):
     """
-    FPN 頸部模塊（無 CA）。
-    結構與 CSPPartialStage 相似：入口 CBN 先將通道減半，雙分支後 concat 再輸出。
-    最高層特徵圖（use_spp=True）在 branch2 的 PHDC 之後使用 SPP。
+    FPN 用的模塊，跟 backbone 的 stage 幾乎一樣，差別是沒有 CA。
+    一樣是進來砍半通道、分兩條、接回來。
+    只有最高層會把 use_spp 打開，在第二條的 PHDC 後面多塞一個 SPP。
     """
     def __init__(self, in_ch: int, out_ch: int, use_spp: bool = False):
         super().__init__()
         mid_ch = in_ch // 2
 
-        # 入口 CBN：通道減半（與 CSPPartialStage 相同設計）
+        # 進來先砍半通道（跟 backbone 的 stage 一樣套路）
         self.conv_in       = CBN(in_ch, mid_ch)
 
         self.branch1       = CBN(mid_ch, mid_ch)
@@ -56,22 +54,22 @@ class FPNStage(nn.Module):
 
 class CSPPartialFPN(nn.Module):
     """
-    雙向特徵金字塔：
-      Top-down：P5 → P4 → P3（上採樣 + concat）
-      Bottom-up：P3 → P4 → P5（下採樣 + concat）
+    雙向的特徵金字塔：
+      由上往下：P5 放大去跟 P4、P3 合（把高層的語意傳給低層）
+      由下往上：P3 縮小去跟 P4、P5 合（把低層的細節傳給高層）
     """
     def __init__(self, in_channels: Tuple[int, int, int] = (128, 256, 512)):
         super().__init__()
         c3, c4, c5 = in_channels
 
-        # --- Top-down ---
+        # --- 由上往下 ---
         self.fpn_p5    = FPNStage(c5,       c5, use_spp=True)
-        self.lat_p5    = CBN(c5, c4)              # 調整 P5 通道數以配合 P4
+        self.lat_p5    = CBN(c5, c4)              # 把 P5 通道調成跟 P4 一樣才好相加
         self.fpn_p4_td = FPNStage(c4 + c4,  c4)
-        self.lat_p4    = CBN(c4, c3)              # 調整 P4 通道數以配合 P3
+        self.lat_p4    = CBN(c4, c3)              # 把 P4 通道調成跟 P3 一樣
         self.fpn_p3_td = FPNStage(c3 + c3,  c3)
 
-        # --- Bottom-up ---
+        # --- 由下往上 ---
         self.down_p3   = nn.Sequential(
             nn.Conv2d(c3, c3, 3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(c3), nn.ReLU(inplace=True),
@@ -86,7 +84,7 @@ class CSPPartialFPN(nn.Module):
     def forward(self, p3: torch.Tensor, p4: torch.Tensor,
                 p5: torch.Tensor) -> Tuple[torch.Tensor, ...]:
 
-        # --- Top-down pass ---
+        # --- 先由上往下 ---
         p5 = self.fpn_p5(p5)                              # B,c5,H5,W5
 
         p5_up = F.interpolate(self.lat_p5(p5),
@@ -97,7 +95,7 @@ class CSPPartialFPN(nn.Module):
                               size=p3.shape[2:], mode='nearest')
         p3 = self.fpn_p3_td(torch.cat([p3, p4_up], dim=1))
 
-        # --- Bottom-up pass ---
+        # --- 再由下往上 ---
         p3_dn = self.down_p3(p3)
         p4 = self.fpn_p4_bu(torch.cat([p3_dn, p4], dim=1))
 

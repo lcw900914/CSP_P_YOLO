@@ -1,8 +1,7 @@
 """
-SPP：Spatial Pyramid Pooling
-論文：CSPPartial-YOLO (IEEE JSTARS 2024)
-用於 FPN 最高層特徵圖，融合局部與全局特徵。
-池化核大小論文未說明，依復現指南先試 [1, 5, 9, 13]。
+SPP（Spatial Pyramid Pooling）— 用幾個不同大小的池化窗去看同一張特徵圖，
+小窗看局部、大窗看全域，再把結果疊起來，等於一次抓到多種尺度的資訊。
+放在 FPN 最高層。池化窗大小論文沒講，這裡先用 [1, 5, 9, 13]。
 """
 
 import torch
@@ -17,7 +16,7 @@ class SPP(nn.Module):
             for k in pool_sizes
         ])
 
-        # 拼接後通道 = channels * N，用 1×1 壓回原始通道數
+        # 疊起來後通道會變 N 倍，用 1×1 壓回原本的數量
         self.conv = nn.Sequential(
             nn.Conv2d(channels * len(pool_sizes), channels, 1, bias=False),
             nn.BatchNorm2d(channels),
